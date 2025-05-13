@@ -7,8 +7,8 @@ from vanna.chromadb import ChromaDB_VectorStore
 
 
 # ---- Configuration ----
-QUESTDB_IP = "40.81.240.69"
-QUESTDB_PORT = "5000"
+QUESTDB_IP = ""
+QUESTDB_PORT = ""
 
 
 # ---- Helper Functions ----
