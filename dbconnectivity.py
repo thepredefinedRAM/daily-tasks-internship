@@ -17,7 +17,7 @@ def run_questdb_query(query: str) -> str:
     try:
         response = requests.get(
             f"http://{QUESTDB_IP}:{QUESTDB_PORT}/exec",
-            params={"query": query},
+            params={"query": query.strip()},  # Send raw SQL only
             timeout=10
         )
         response.raise_for_status()
@@ -45,9 +45,12 @@ def format_csv_response(csv_text: str):
     return "\n".join([", ".join(row) for row in rows])
 
 
-def sanitize_sql(sql: str) -> str:
-    """Sanitizes generated SQL to work with QuestDB syntax."""
-    return sql.replace("TOP", "LIMIT")
+def clean_sql(sql: str) -> str:
+    """
+    Removes any markdown formatting, triple backticks, and extra whitespace.
+    Ensures clean SQL output for execution.
+    """
+    return sql.replace("```sql", "").replace("```", "").strip()
 
 
 # ---- Vector Store Implementation ----
@@ -113,9 +116,10 @@ class CustomVanna(VannaBase):
         print(f"Submitting prompt to LLM:\n{prompt}")
         return self.llm(prompt)
 
-    def get_sql(self, question: str):
+    def get_sql(self, question: str) -> str:
         print(f"Getting SQL for question: {question}")
-        return self.submit_prompt(self.generate_prompt(question))
+        raw_sql = self.submit_prompt(self.generate_prompt(question))
+        return clean_sql(raw_sql)
 
     def run_sql(self, sql: str):
         print(f"Executing SQL:\n{sql}")
@@ -143,11 +147,11 @@ class CustomVanna(VannaBase):
 
         if ddl_statements:
             prompt += f"Use the following database schema:\n{ddl_statements}\n\n"
-        
+
         if doc_string:
             prompt += f"Additional context:\n{doc_string}\n\n"
-        
-        prompt += "Only respond with the SQL query, no explanation."
+
+        prompt += "Only respond with the SQL query, no explanation, no markdown, no triple backticks."
 
         return prompt
 
@@ -176,27 +180,24 @@ vn = CustomVanna(
 # ---- Train Vanna with Schema Info ----
 vn.add_table_documentation(
     table_name="cost_tables_info",
-    documentation="This table contains all the cost-related information."
+    documentation="This table contains metadata about cost-related tables."
 )
 
-vn.add_ddl("CREATE TABLE cost_tables_info (cost_id INT, service_name TEXT, cost_value FLOAT,  TIMESTAMP);")
+vn.add_ddl("CREATE TABLE cost_tables_info (cost_id INT, service_name TEXT, cost_value FLOAT, billing_date TIMESTAMP);")
 
 vn.add_question_sql(
-    question="What is the total cost of datacenter cluster2 resources CPU?",
+    question="Show me the first 5 rows of cost tables info",
     sql="SELECT * FROM cost_tables_info LIMIT 5;"
 )
 
 # ---- Ask a Natural Language Question ----
-question = "Show me top 2 tables"
+question = "How many clusters are there?"
 sql_query = vn.get_sql(question)
 
-# ---- Sanitize and Run Query ----
-sql_query = sanitize_sql(sql_query)
 print("\nGenerated SQL Query:\n", sql_query)
 
 raw_result = run_questdb_query(sql_query)
 
-# ---- Output Result ----
 print("\nQuery Result:")
 print(format_csv_response(raw_result))
 
